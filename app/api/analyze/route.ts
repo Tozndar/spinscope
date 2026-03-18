@@ -3,6 +3,17 @@ import { randomUUID } from "crypto";
 
 const GEMINI_API_KEY = process.env.GEMINI_API_KEY;
 
+function decodeHtmlEntities(str: string): string {
+  return str
+    .replace(/&quot;/g, '"')
+    .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, "&")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
+    .replace(/&nbsp;/g, " ")
+    .replace(/&#\d+;/g, (match) => String.fromCharCode(parseInt(match.slice(2, -1))));
+}
+
 async function fetchArticleText(input: string): Promise<{ title: string; text: string; source: string }> {
   if (input.startsWith("http://") || input.startsWith("https://")) {
     const res = await fetch(input, {
@@ -10,22 +21,29 @@ async function fetchArticleText(input: string): Promise<{ title: string; text: s
     });
     const html = await res.text();
     const titleMatch = html.match(/<title[^>]*>([^<]+)<\/title>/i);
-    const title = titleMatch ? titleMatch[1].replace(/\s*[-|–].*$/, "").trim() : "כתבה";
+    const rawTitle = titleMatch ? titleMatch[1].replace(/\s*[-|–|·].*$/, "").trim() : "כתבה";
+    const title = decodeHtmlEntities(rawTitle);
     const url = new URL(input);
     const source = url.hostname.replace("www.", "");
+
+    // Try og:description / meta description first for summary
+    const ogDesc = html.match(/<meta[^>]*property=["\']og:description["\'][^>]*content=["\']([^"\']+)["\'][^>]*>/i);
+    const metaDesc = html.match(/<meta[^>]*name=["\']description["\'][^>]*content=["\']([^"\']+)["\'][^>]*>/i);
+    const description = ogDesc?.[1] || metaDesc?.[1] || "";
 
     const paragraphs = html
       .replace(/<script[^>]*>[\s\S]*?<\/script>/gi, "")
       .replace(/<style[^>]*>[\s\S]*?<\/style>/gi, "")
       .match(/<p[^>]*>([\s\S]*?)<\/p>/gi) || [];
 
-    const text = paragraphs
-      .map((p) => p.replace(/<[^>]+>/g, "").trim())
+    const pText = paragraphs
+      .map((p) => decodeHtmlEntities(p.replace(/<[^>]+>/g, "").trim()))
       .filter((p) => p.length > 30)
       .slice(0, 25)
       .join("\n\n");
 
-    return { title, text: text || "לא ניתן לחלץ טקסט", source };
+    const text = [description, pText].filter(Boolean).join("\n\n") || "לא ניתן לחלץ טקסט";
+    return { title, text, source };
   }
 
   const firstLine = input.split("\n")[0].slice(0, 80);
@@ -68,9 +86,18 @@ JSON בלבד, ללא markdown.`;
   );
 
   const data = await res.json();
-  const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || "{}";
+  if (data?.error) {
+    console.error("Gemini API error:", JSON.stringify(data.error));
+    throw new Error("Gemini: " + (data.error.message || "שגיאה"));
+  }
+  const raw = data?.candidates?.[0]?.content?.parts?.[0]?.text || "";
+  console.log("Gemini raw:", raw.slice(0, 300));
+  if (!raw) return {};
   const cleaned = raw.replace(/```json\n?/g, "").replace(/```\n?/g, "").trim();
-  try { return JSON.parse(cleaned); } catch { return {}; }
+  try { return JSON.parse(cleaned); } catch (e) {
+    console.error("JSON parse error:", e, "raw:", cleaned.slice(0, 200));
+    return {};
+  }
 }
 
 async function searchRelated(query: string): Promise<{ title: string; url: string; source: string }[]> {
