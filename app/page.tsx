@@ -23,6 +23,8 @@ export default function Home() {
       });
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || "שגיאה");
+      // Store full result in sessionStorage so result page can access it
+      sessionStorage.setItem(`spinscope_${data.id}`, JSON.stringify(data.result));
       router.push(`/result/${data.id}`);
     } catch (err: any) {
       setError(err.message);

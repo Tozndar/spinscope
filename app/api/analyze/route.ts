@@ -149,7 +149,8 @@ export async function POST(req: Request) {
     };
 
     saveResult(result);
-    return Response.json({ id });
+    // Return full result so client can store it (in-memory store doesn't persist across serverless instances)
+    return Response.json({ id, result });
   } catch (err: any) {
     console.error("analyze error:", err);
     return Response.json({ error: err.message || "שגיאה בניתוח" }, { status: 500 });

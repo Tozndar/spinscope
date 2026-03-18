@@ -18,10 +18,19 @@ export default function ResultPage() {
   const [copied, setCopied] = useState(false);
 
   useEffect(() => {
+    // Try sessionStorage first (fresh analysis)
+    const cached = sessionStorage.getItem(`spinscope_${params.id}`);
+    if (cached) {
+      try {
+        setResult(JSON.parse(cached));
+        return;
+      } catch {}
+    }
+    // Fallback to API (won't work on serverless but kept for future DB)
     fetch(`/api/result/${params.id}`)
       .then((r) => r.json())
       .then((d) => {
-        if (d.error) setError(d.error);
+        if (d.error) setError("הניתוח פג תוקף — חזור לדף הבית ונסה שוב");
         else setResult(d);
       })
       .catch(() => setError("שגיאה בטעינה"));
